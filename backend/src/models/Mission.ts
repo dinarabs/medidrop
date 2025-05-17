@@ -1,3 +1,5 @@
+import { Drone } from "./Drone.js";
+
 export interface Coordinates {
   lat: number;
   lon: number;
@@ -31,4 +33,6 @@ export interface Mission {
   altitude?: number;
   phase?: MissionPhase;
   eta?: number;
+  assignedDroneId?: string;
+  droneStatusUpdater?: (update: Partial<Drone>) => void;
 }
