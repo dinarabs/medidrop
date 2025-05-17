@@ -33,23 +33,18 @@ function calculateWindDrift(
   const windRad = (windDirection * Math.PI) / 180;
   const headingRad = (droneHeading * Math.PI) / 180;
 
-  // Calculate wind components
   const windX = windSpeed * Math.sin(windRad);
   const windY = windSpeed * Math.cos(windRad);
 
-  // Calculate drone velocity components
   const droneX = droneSpeed * Math.sin(headingRad);
   const droneY = droneSpeed * Math.cos(headingRad);
 
-  // Calculate resultant velocity
   const resultantX = droneX + windX;
   const resultantY = droneY + windY;
 
-  // Calculate new heading and speed
   const newSpeed = Math.sqrt(resultantX * resultantX + resultantY * resultantY);
   const newHeading = (Math.atan2(resultantX, resultantY) * 180) / Math.PI;
 
-  // Normalize heading to 0-359
   const normalizedHeading = (newHeading + 360) % 360;
 
   return {
