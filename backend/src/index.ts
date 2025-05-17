@@ -48,7 +48,27 @@ io.on("connection", (socket) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 3000;
-httpServer.listen(Number(PORT), "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT}`);
+const PORT = Number(config.port);
+const HOST = "0.0.0.0";
+
+// Suppress punycode deprecation warning
+process.removeAllListeners("warning");
+process.on("warning", (warning) => {
+  if (
+    warning.name === "DeprecationWarning" &&
+    warning.message.includes("punycode")
+  ) {
+    return;
+  }
+  console.warn(warning);
 });
+
+httpServer
+  .listen(PORT, HOST, () => {
+    console.log(`Server running at http://${HOST}:${PORT}`);
+    console.log(`Environment: ${config.nodeEnv}`);
+  })
+  .on("error", (err) => {
+    console.error("Server failed to start:", err);
+    process.exit(1);
+  });
