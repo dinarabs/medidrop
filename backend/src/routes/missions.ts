@@ -5,9 +5,11 @@ import { simulateMission } from "../logic/simulator";
 import { missions } from "../data/store";
 import { Mission } from "../models/Mission";
 
+import { checkWeather } from "../services/weather";
+
 const router = Router();
 
-const startMission: RequestHandler = (req: Request, res: Response) => {
+const startMission: RequestHandler = async (req: Request, res: Response) => {
   console.log("Received request:", {
     method: req.method,
     path: req.path,
@@ -20,6 +22,15 @@ const startMission: RequestHandler = (req: Request, res: Response) => {
     name: string;
     route: any[];
   };
+
+  const weather = await checkWeather(route[0].lat, route[0].lon);
+  if (!weather.isSafe) {
+    res.status(400).json({
+      error: "Mission not allowed due to weather conditions",
+      reason: weather.reason,
+    });
+    return;
+  }
 
   if (!droneId || !name || !route) {
     console.log("Missing required fields:", { droneId, name, route });
@@ -46,7 +57,18 @@ const startMission: RequestHandler = (req: Request, res: Response) => {
   };
 
   missions[missionId] = newMission;
-  simulateMission(missionId);
+
+  const io = req.app.get("io");
+  io.to(missionId).emit("telemetryUpdate", {
+    droneId,
+    missionId,
+    position: route[0],
+    battery: 100,
+    status: "started",
+    timestamp: Date.now(),
+  });
+
+  simulateMission(missionId, io);
 
   res.status(201).json({ missionId });
 };
@@ -59,7 +81,13 @@ const getMission: RequestHandler = (req: Request, res: Response) => {
     res.status(404).json({ error: "Mission not found" });
     return;
   }
-  res.json(mission);
+
+  res.json({
+    ...mission,
+    altitude: mission.altitude,
+    phase: mission.phase,
+    eta: mission.eta,
+  });
 };
 
 router.get("/:id", getMission);

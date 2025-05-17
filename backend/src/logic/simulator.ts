@@ -1,24 +1,346 @@
+// backend/src/logic/simulator.ts
 import { Mission } from "../models/Mission";
 import { missions } from "../data/store";
+import { Server } from "socket.io";
+import { getTerrainData } from "../services/terrain";
+import { checkWeather } from "../services/weather";
 
-export function simulateMission(missionId: string) {
+function getDistanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function calculateWindDrift(
+  windSpeed: number,
+  windDirection: number,
+  droneSpeed: number,
+  droneHeading: number
+) {
+  // Convert angles to radians
+  const windRad = (windDirection * Math.PI) / 180;
+  const headingRad = (droneHeading * Math.PI) / 180;
+
+  // Calculate wind components
+  const windX = windSpeed * Math.sin(windRad);
+  const windY = windSpeed * Math.cos(windRad);
+
+  // Calculate drone velocity components
+  const droneX = droneSpeed * Math.sin(headingRad);
+  const droneY = droneSpeed * Math.cos(headingRad);
+
+  // Calculate resultant velocity
+  const resultantX = droneX + windX;
+  const resultantY = droneY + windY;
+
+  // Calculate new heading and speed
+  const newSpeed = Math.sqrt(resultantX * resultantX + resultantY * resultantY);
+  const newHeading = (Math.atan2(resultantX, resultantY) * 180) / Math.PI;
+
+  // Normalize heading to 0-359
+  const normalizedHeading = (newHeading + 360) % 360;
+
+  return {
+    speed: newSpeed,
+    heading: normalizedHeading,
+    driftX: windX,
+    driftY: windY,
+  };
+}
+
+function calculateHeading(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const lat1Rad = (lat1 * Math.PI) / 180;
+  const lat2Rad = (lat2 * Math.PI) / 180;
+
+  const y = Math.sin(dLon) * Math.cos(lat2Rad);
+  const x =
+    Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+    Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+
+  let heading = (Math.atan2(y, x) * 180) / Math.PI;
+  return (heading + 360) % 360;
+}
+
+export async function simulateMission(missionId: string, io: Server) {
   const mission = missions[missionId];
   if (!mission) return;
 
-  mission.status = "in_progress";
+  mission.status = "taking_off";
   mission.startedAt = Date.now();
 
-  const interval = setInterval(() => {
-    if (!missions[missionId]) return clearInterval(interval);
+  let phase: "takeoff" | "cruise" | "delivery" | "returning" | "landing" =
+    "takeoff";
+  let altitude = 0;
+  const droneSpeed = 50; // meters per second
+  const minAltitude = 50; // reduced from 200 for testing
+  const batteryConsumptionRate = 0.1; // reduced from 3 for testing
+  let currentPosition = { ...mission.route[0] }; // Start at first point
+  const takeoffTime = 10; // seconds for takeoff
+  const landingTime = 10; // seconds for landing
+  let terrainAtLanding = await getTerrainData(
+    mission.route[mission.route.length - 1].lat,
+    mission.route[mission.route.length - 1].lon
+  );
 
-    const m = missions[missionId];
-    if (m.currentStep >= m.route.length - 1) {
-      m.status = "completed";
-      m.completedAt = Date.now();
-      return clearInterval(interval);
+  const interpolatePosition = (
+    start: any,
+    end: any,
+    progress: number,
+    windDrift: { driftX: number; driftY: number }
+  ) => {
+    // Calculate base position
+    const baseLat = start.lat + (end.lat - start.lat) * progress;
+    const baseLon = start.lon + (end.lon - start.lon) * progress;
+
+    // Convert wind drift from meters to degrees (approximate)
+    // 1 degree of latitude is approximately 111,111 meters
+    // 1 degree of longitude varies with latitude, but we'll use a rough approximation
+    const latDrift = windDrift.driftY / 111111;
+    const lonDrift =
+      windDrift.driftX / (111111 * Math.cos((baseLat * Math.PI) / 180));
+
+    return {
+      lat: baseLat + latDrift,
+      lon: baseLon + lonDrift,
+    };
+  };
+
+  const calculateTotalDistance = () => {
+    let total = 0;
+    for (let i = 0; i < mission.route.length - 1; i++) {
+      total += getDistanceMeters(
+        mission.route[i].lat,
+        mission.route[i].lon,
+        mission.route[i + 1].lat,
+        mission.route[i + 1].lon
+      );
+    }
+    return total;
+  };
+
+  const calculateRemainingDistance = () => {
+    if (phase === "takeoff") {
+      return calculateTotalDistance();
+    } else if (phase === "cruise") {
+      let remaining = 0;
+      for (let i = mission.currentStep; i < mission.route.length - 1; i++) {
+        remaining += getDistanceMeters(
+          mission.route[i].lat,
+          mission.route[i].lon,
+          mission.route[i + 1].lat,
+          mission.route[i + 1].lon
+        );
+      }
+      return remaining;
+    } else if (phase === "delivery") {
+      return 0;
+    } else if (phase === "returning") {
+      let remaining = 0;
+      for (let i = mission.currentStep; i < mission.route.length - 1; i++) {
+        remaining += getDistanceMeters(
+          mission.route[i].lat,
+          mission.route[i].lon,
+          mission.route[i + 1].lat,
+          mission.route[i + 1].lon
+        );
+      }
+      return remaining;
+    } else if (phase === "landing") {
+      return 0;
+    }
+    return 0;
+  };
+
+  const calculateETA = () => {
+    const remainingDistance = calculateRemainingDistance();
+    const flightTime = remainingDistance / droneSpeed;
+
+    if (phase === "takeoff") {
+      return flightTime + takeoffTime + landingTime;
+    } else if (phase === "cruise") {
+      return flightTime + landingTime;
+    } else if (phase === "delivery") {
+      return landingTime;
+    } else if (phase === "returning") {
+      return flightTime + landingTime;
+    } else if (phase === "landing") {
+      return 0;
+    }
+    return 0;
+  };
+
+  const simulateStep = async () => {
+    if (!missions[missionId]) return;
+
+    const current = mission.route[mission.currentStep];
+    const nextStep = mission.route[mission.currentStep + 1];
+
+    // Get current weather conditions
+    const weather = await checkWeather(
+      currentPosition.lat,
+      currentPosition.lon
+    );
+
+    let travelTime = 1000;
+    let progress = 0;
+    let currentHeading = 0;
+
+    if (nextStep) {
+      // Calculate desired heading to next waypoint
+      currentHeading = calculateHeading(
+        currentPosition.lat,
+        currentPosition.lon,
+        nextStep.lat,
+        nextStep.lon
+      );
+
+      // Calculate wind effects
+      const windEffects = calculateWindDrift(
+        weather.windSpeed,
+        weather.windDirection,
+        droneSpeed,
+        currentHeading
+      );
+
+      const distance = getDistanceMeters(
+        current.lat,
+        current.lon,
+        nextStep.lat,
+        nextStep.lon
+      );
+
+      // Adjust travel time based on wind effects
+      travelTime = (distance / windEffects.speed) * 1000; // in ms
+      progress = Math.min(1, (Date.now() - mission.startedAt) / travelTime);
+
+      // Update position with wind drift
+      currentPosition = interpolatePosition(current, nextStep, progress, {
+        driftX: windEffects.driftX,
+        driftY: windEffects.driftY,
+      });
     }
 
-    m.currentStep++;
-    m.battery -= Math.random() * 5;
-  }, 1000);
+    if (phase === "takeoff") {
+      const initialTerrain = await getTerrainData(
+        currentPosition.lat,
+        currentPosition.lon
+      );
+      const targetAltitude = initialTerrain.elevation + minAltitude;
+      altitude += 20;
+      if (altitude >= targetAltitude) {
+        altitude = targetAltitude;
+        phase = "cruise";
+        mission.status = "in_progress";
+      }
+    } else if (phase === "cruise" && nextStep) {
+      const terrain = await getTerrainData(
+        currentPosition.lat,
+        currentPosition.lon
+      );
+      altitude = terrain.elevation + minAltitude;
+      if (progress >= 1) {
+        mission.currentStep++;
+        if (mission.currentStep === mission.route.length - 1) {
+          phase = "delivery";
+        }
+      }
+    } else if (phase === "delivery") {
+      altitude -= 40;
+      if (altitude <= terrainAtLanding.elevation + 2) {
+        altitude = terrainAtLanding.elevation + 2;
+        phase = "returning";
+        mission.currentStep = 0;
+      }
+    } else if (phase === "returning") {
+      const terrain = await getTerrainData(
+        currentPosition.lat,
+        currentPosition.lon
+      );
+      altitude = terrain.elevation + minAltitude;
+      if (progress >= 1) {
+        mission.currentStep++;
+        if (mission.currentStep >= mission.route.length - 1) {
+          phase = "landing";
+        }
+      }
+    } else if (phase === "landing") {
+      const landingTerrain = await getTerrainData(
+        currentPosition.lat,
+        currentPosition.lon
+      );
+      altitude -= 20;
+      if (altitude <= landingTerrain.elevation) {
+        altitude = landingTerrain.elevation;
+        mission.status = "completed";
+        mission.completedAt = Date.now();
+        io.to(missionId).emit("telemetryUpdate", {
+          missionId,
+          status: "completed",
+          position: currentPosition,
+          battery: mission.battery,
+          altitude,
+          phase,
+          eta: 0,
+          timestamp: Date.now(),
+        });
+        return;
+      }
+    }
+
+    mission.battery = Math.max(0, mission.battery - batteryConsumptionRate);
+
+    const remainingDistance = calculateRemainingDistance();
+    const estimatedTimeSec = calculateETA();
+
+    console.log(
+      `[TELEMETRY] Mission ${missionId} - Phase: ${phase}, Position: (${currentPosition.lat.toFixed(
+        4
+      )}, ${currentPosition.lon.toFixed(
+        4
+      )}), Altitude: ${altitude}m, Battery: ${mission.battery.toFixed(
+        1
+      )}%, Distance: ${Math.round(remainingDistance)}m, ETA: ${Math.round(
+        estimatedTimeSec
+      )}s, Heading: ${Math.round(currentHeading)}°, Wind: ${
+        weather.windSpeed
+      }m/s from ${weather.windDirection}°`
+    );
+
+    io.to(missionId).emit("telemetryUpdate", {
+      missionId,
+      position: currentPosition,
+      battery: mission.battery,
+      status: mission.status,
+      altitude,
+      phase,
+      eta: Math.round(estimatedTimeSec),
+      distance: Math.round(remainingDistance),
+      heading: Math.round(currentHeading),
+      windSpeed: weather.windSpeed,
+      windDirection: weather.windDirection,
+      timestamp: Date.now(),
+    });
+
+    setTimeout(simulateStep, 1000);
+  };
+
+  simulateStep();
 }

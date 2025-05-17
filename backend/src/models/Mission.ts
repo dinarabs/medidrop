@@ -4,7 +4,19 @@ export interface Coordinates {
   alt?: number;
 }
 
-export type MissionStatus = "idle" | "in_progress" | "completed" | "failed";
+export type MissionStatus =
+  | "idle"
+  | "taking_off"
+  | "in_progress"
+  | "completed"
+  | "failed";
+
+export type MissionPhase =
+  | "takeoff"
+  | "cruise"
+  | "delivery"
+  | "returning"
+  | "landing";
 
 export interface Mission {
   id: string;
@@ -16,4 +28,7 @@ export interface Mission {
   battery: number;
   startedAt: number;
   completedAt?: number;
+  altitude?: number;
+  phase?: MissionPhase;
+  eta?: number;
 }
