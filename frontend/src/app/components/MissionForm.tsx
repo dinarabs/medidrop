@@ -46,7 +46,7 @@ function LocationPicker({ location, setLocation }: {
   };
 
   return (
-    <div className="h-64 w-full mb-4 rounded overflow-hidden">
+    <div className="h-64 w-full mb-4 rounded overflow-hidden cursor-pointer">
       <MapContainer
         center={[location.lat ? Number(location.lat) : 0, location.long ? Number(location.long) : 0]}
         zoom={location.lat && location.long ? 13 : 2}
@@ -80,7 +80,7 @@ export default function MissionForm({ onClose }: MissionFormProps) {
     >
       <div className="flex flex-col md:flex-row gap-6">
         <div className="flex-1">
-          <label className="block font-semibold mb-2">Location</label>
+          <label className="block font-semibold mb-2 text-gray-900">Location</label>          
           <div className="flex gap-2 mb-2">
             <input
               type="number"
