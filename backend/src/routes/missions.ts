@@ -24,8 +24,6 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
     route: any[];
   };
 
-  console.log("Route:", JSON.stringify(route, null, 2));
-
   const weather = await checkWeather(route[0].lat, route[0].lon);
   if (!weather.isSafe) {
     res.status(400).json({
@@ -69,8 +67,6 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
   };
 
   const savedMission = await saveMission(newMission);
-
-  console.log("Saved mission:", savedMission);
 
   if (savedMission) {
     const io = req.app.get("io");
