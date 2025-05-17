@@ -2,6 +2,7 @@ import express from "express";
 import http from "http";
 import { Server } from "socket.io";
 import missionRoutes from "./routes/missions";
+import droneRoutes from "./routes/drones";
 import { setupSocket } from "./ws/socket";
 
 const app = express();
@@ -23,6 +24,7 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 app.use("/api/missions", missionRoutes);
+app.use("/api/drones", droneRoutes);
 
 app.listen(port, () => {
   console.log(`🚀 Server running on http://localhost:${port}`);

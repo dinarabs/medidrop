@@ -5,6 +5,9 @@ node_modules/
 .next/
 out/
 
+# server
+*/dist
+
 # Local env files
 .env
 .env.local
