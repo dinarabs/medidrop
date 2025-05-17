@@ -100,6 +100,15 @@ export async function simulateMission(missionId: string, io: Server) {
     mission.route[mission.route.length - 1].lon
   );
 
+  // Update drone status at mission start
+  if (mission.droneStatusUpdater) {
+    mission.droneStatusUpdater({
+      status: "in_mission",
+      location: currentPosition,
+      battery: mission.battery,
+    });
+  }
+
   const interpolatePosition = (
     start: any,
     end: any,
@@ -110,9 +119,6 @@ export async function simulateMission(missionId: string, io: Server) {
     const baseLat = start.lat + (end.lat - start.lat) * progress;
     const baseLon = start.lon + (end.lon - start.lon) * progress;
 
-    // Convert wind drift from meters to degrees (approximate)
-    // 1 degree of latitude is approximately 111,111 meters
-    // 1 degree of longitude varies with latitude, but we'll use a rough approximation
     const latDrift = windDrift.driftY / 111111;
     const lonDrift =
       windDrift.driftX / (111111 * Math.cos((baseLat * Math.PI) / 180));
@@ -204,7 +210,6 @@ export async function simulateMission(missionId: string, io: Server) {
     let currentHeading = 0;
 
     if (nextStep) {
-      // Calculate desired heading to next waypoint
       currentHeading = calculateHeading(
         currentPosition.lat,
         currentPosition.lon,
@@ -212,7 +217,6 @@ export async function simulateMission(missionId: string, io: Server) {
         nextStep.lon
       );
 
-      // Calculate wind effects
       const windEffects = calculateWindDrift(
         weather.windSpeed,
         weather.windDirection,
@@ -227,15 +231,20 @@ export async function simulateMission(missionId: string, io: Server) {
         nextStep.lon
       );
 
-      // Adjust travel time based on wind effects
       travelTime = (distance / windEffects.speed) * 1000; // in ms
       progress = Math.min(1, (Date.now() - mission.startedAt) / travelTime);
 
-      // Update position with wind drift
       currentPosition = interpolatePosition(current, nextStep, progress, {
         driftX: windEffects.driftX,
         driftY: windEffects.driftY,
       });
+
+      // Update drone location
+      if (mission.droneStatusUpdater) {
+        mission.droneStatusUpdater({
+          location: currentPosition,
+        });
+      }
     }
 
     if (phase === "takeoff") {
@@ -291,6 +300,16 @@ export async function simulateMission(missionId: string, io: Server) {
         altitude = landingTerrain.elevation;
         mission.status = "completed";
         mission.completedAt = Date.now();
+
+        // Update drone status to idle after mission completion
+        if (mission.droneStatusUpdater) {
+          mission.droneStatusUpdater({
+            status: "idle",
+            location: currentPosition,
+            battery: mission.battery,
+          });
+        }
+
         io.to(missionId).emit("telemetryUpdate", {
           missionId,
           status: "completed",
@@ -306,6 +325,13 @@ export async function simulateMission(missionId: string, io: Server) {
     }
 
     mission.battery = Math.max(0, mission.battery - batteryConsumptionRate);
+
+    // Update drone battery
+    if (mission.droneStatusUpdater) {
+      mission.droneStatusUpdater({
+        battery: mission.battery,
+      });
+    }
 
     const remainingDistance = calculateRemainingDistance();
     const estimatedTimeSec = calculateETA();

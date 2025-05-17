@@ -5,8 +5,6 @@ import {
   Response as ExpressResponse,
   RequestHandler,
 } from "express";
-import { missions } from "../data/store";
-import { Mission } from "../models/Mission";
 
 interface Drone {
   droneId: string;
@@ -79,7 +77,7 @@ router.put("/:droneId", ((req, res) => {
   drones[droneId] = {
     ...drones[droneId],
     ...updates,
-    droneId, // ensure ID is not overridden
+    droneId,
   };
 
   res.json(drones[droneId]);
@@ -117,12 +115,23 @@ router.post("/assign/:missionId", ((req, res) => {
   }
 
   suitableDrone.status = "in_mission";
-  suitableDrone.location = startLocation;
+  // Location will be updated live during simulation steps
 
   // link drone to mission
   const { missions } = require("../data/store");
   if (missions[missionId]) {
     missions[missionId].assignedDroneId = suitableDrone.droneId;
+    missions[missionId].droneStatusUpdater = (update: Partial<Drone>) => {
+      drones[suitableDrone.droneId] = {
+        ...drones[suitableDrone.droneId],
+        ...update,
+      };
+
+      // Ensure location, battery, and status get updated live
+      if (update.status === "idle") {
+        drones[suitableDrone.droneId].status = "idle";
+      }
+    };
   }
 
   res.status(200).json({ assignedDrone: suitableDrone });
