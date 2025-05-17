@@ -8,11 +8,9 @@ import {
   getDroneById,
   getAvailableDrones,
 } from "../services/droneService";
-import { supabase } from "../lib/supabase";
 
 const router = Router();
 
-// Specific routes should come first
 router.get("/available", async (req: Request, res: Response) => {
   try {
     const drones = await getAvailableDrones();
@@ -22,7 +20,6 @@ router.get("/available", async (req: Request, res: Response) => {
   }
 });
 
-// General routes come after
 router.get("/", async (req: Request, res: Response) => {
   try {
     const drones = await getAllDrones();

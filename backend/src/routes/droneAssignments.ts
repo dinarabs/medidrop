@@ -43,7 +43,6 @@ const assignDroneToMission: RequestHandler = async (req, res) => {
   const { payloadRequired } = req.body;
 
   try {
-    // Find a suitable drone
     const { data: drones, error } = await supabase
       .from("drones")
       .select("*")
@@ -63,13 +62,11 @@ const assignDroneToMission: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Assign the drone to the mission
     await supabase
       .from("missions")
       .update({ assigned_drone_id: suitableDrone.drone_id })
       .eq("id", missionId);
 
-    // Update drone status
     await supabase
       .from("drones")
       .update({ status: "in_mission" })

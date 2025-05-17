@@ -7,6 +7,7 @@ import { Mission } from "../models/Mission";
 import { saveMission } from "../services/missionService";
 import { checkWeather } from "../services/weather";
 import { supabase } from "../lib/supabase";
+import { getAvailableDrones } from "../services/droneService";
 
 const router = Router();
 
@@ -18,8 +19,7 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
     headers: req.headers,
   });
 
-  const { droneId, name, route } = req.body as {
-    droneId: string;
+  const { name, route } = req.body as {
     name: string;
     route: any[];
   };
@@ -33,8 +33,8 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
     return;
   }
 
-  if (!droneId || !name || !route) {
-    console.log("Missing required fields:", { droneId, name, route });
+  if (!name || !route) {
+    console.log("Missing required fields:", { name, route });
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
@@ -45,10 +45,19 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
     return;
   }
 
+  // 1. Find an available drone
+  const availableDrones = await getAvailableDrones();
+  if (!availableDrones || availableDrones.length === 0) {
+    res.status(400).json({ error: "No available drones at the moment" });
+    return;
+  }
+
+  const drone = availableDrones[0];
+
   const missionId = uuidv4();
   const newMission: Mission = {
     id: missionId,
-    droneId,
+    droneId: drone.drone_id,
     name,
     route,
     currentStep: 0,
@@ -57,21 +66,25 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
     startedAt: Date.now(),
   };
 
-  await saveMission(newMission);
+  const savedMission = await saveMission(newMission);
 
-  const io = req.app.get("io");
-  io.to(missionId).emit("telemetryUpdate", {
-    droneId,
-    missionId,
-    position: route[0],
-    battery: 100,
-    status: "started",
-    timestamp: Date.now(),
-  });
+  if (savedMission) {
+    const io = req.app.get("io");
+    io.to(missionId).emit("telemetryUpdate", {
+      droneId: drone.drone_id,
+      missionId,
+      position: route[0],
+      battery: 100,
+      status: "started",
+      timestamp: Date.now(),
+    });
 
-  simulateMission(missionId, io);
+    simulateMission(missionId, io);
 
-  res.status(201).json({ missionId });
+    res.status(201).json({ missionId });
+  } else {
+    res.status(500).json({ error: "Failed to save mission" });
+  }
 };
 
 router.post("/start", startMission);
@@ -129,13 +142,12 @@ const cancelMission: RequestHandler = async (req: Request, res: Response) => {
     return;
   }
 
-  // Only allow cancellation if mission is still running
   if (mission.status === "completed" || mission.status === "failed") {
     res.status(400).json({ error: "Mission already ended" });
     return;
   }
 
-  mission.status = "in_progress"; // instruct the simulator to start return flow
+  mission.status = "in_progress";
   mission.phase = "returning";
 
   const io = req.app.get("io");
@@ -146,7 +158,6 @@ const cancelMission: RequestHandler = async (req: Request, res: Response) => {
     timestamp: Date.now(),
   });
 
-  // Optionally mark it in Supabase too
   await supabase
     .from("missions")
     .update({

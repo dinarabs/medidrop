@@ -2,7 +2,7 @@ import { supabase } from "../lib/supabase";
 import { Mission } from "../models/Mission";
 
 export async function saveMission(mission: Mission) {
-  const { error } = await supabase.from("missions").insert([
+  const { data, error } = await supabase.from("missions").insert([
     {
       id: mission.id,
       drone_id: mission.droneId,
@@ -24,4 +24,6 @@ export async function saveMission(mission: Mission) {
     console.error("❌ Failed to save mission:", error.message);
     throw error;
   }
+
+  return data;
 }
