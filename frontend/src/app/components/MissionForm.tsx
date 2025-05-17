@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import KitSelector from "./KitSelector";
 import { useMapEvents } from "react-leaflet";
 import { useEffect } from "react";
-import L from "leaflet";
 
 // Dynamically import only components
 const MapContainer = dynamic(() => import("react-leaflet").then(mod => mod.MapContainer), { ssr: false });
@@ -15,19 +14,12 @@ const Marker = dynamic(() => import("react-leaflet").then(mod => mod.Marker), { 
 type MissionFormProps = {
   onClose: () => void;
 };
+type Location = { lat: string; long: string };
 
-const allProducts = [
-  "Bandages",
-  "Water Bottles",
-  "Blanket",
-  "Painkillers",
-  "Electrolyte Powder",
-  "Sleeping Bag",
-  "Flashlight",
-  "Antiseptic Wipes",
-];
-
-function LocationPicker({ location, setLocation }: any) {
+function LocationPicker({ location, setLocation }: {
+  location: Location;
+  setLocation: (loc: Location) => void;
+}) {
   // Ask for location on mount
   useEffect(() => {
     if (!location.lat && !location.long && navigator.geolocation) {
@@ -42,7 +34,6 @@ function LocationPicker({ location, setLocation }: any) {
 
   // Custom marker handler
   const MarkerSetter = () => {
-    // @ts-ignore
     useMapEvents({
       click(e: { latlng: { lat: number; lng: number; }; }) {
         setLocation({
@@ -75,16 +66,6 @@ function LocationPicker({ location, setLocation }: any) {
 
 export default function MissionForm({ onClose }: MissionFormProps) {
   const [location, setLocation] = useState({ lat: "", long: "" });
-  const [kit, setKit] = useState("");
-  const [customProducts, setCustomProducts] = useState<string[]>([]);
-
-  const handleCheckbox = (product: string) => {
-    setCustomProducts((prev) =>
-      prev.includes(product)
-        ? prev.filter((p) => p !== product)
-        : [...prev, product]
-    );
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
