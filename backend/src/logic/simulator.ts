@@ -1,6 +1,6 @@
 // backend/src/logic/simulator.ts
 import { Mission } from "../models/Mission";
-import { missions } from "../data/store";
+import { supabase } from "../lib/supabase";
 import { Server } from "socket.io";
 import { getTerrainData } from "../services/terrain";
 import { checkWeather } from "../services/weather";
@@ -80,25 +80,41 @@ function calculateHeading(
 }
 
 export async function simulateMission(missionId: string, io: Server) {
-  const mission = missions[missionId];
-  if (!mission) return;
+  const { data: mission } = await supabase
+    .from("missions")
+    .select("*")
+    .eq("id", missionId)
+    .single();
 
-  mission.status = "taking_off";
-  mission.startedAt = Date.now();
+  if (!mission) return;
 
   let phase: "takeoff" | "cruise" | "delivery" | "returning" | "landing" =
     "takeoff";
   let altitude = 0;
-  const droneSpeed = 50; // meters per second
-  const minAltitude = 50; // reduced from 200 for testing
-  const batteryConsumptionRate = 0.1; // reduced from 3 for testing
-  let currentPosition = { ...mission.route[0] }; // Start at first point
-  const takeoffTime = 10; // seconds for takeoff
-  const landingTime = 10; // seconds for landing
+  const droneSpeed = 50;
+  const minAltitude = 50;
+  const batteryConsumptionRate = 0.1;
+  let currentPosition = { ...mission.route[0] };
+  const takeoffTime = 10;
+  const landingTime = 10;
   let terrainAtLanding = await getTerrainData(
     mission.route[mission.route.length - 1].lat,
     mission.route[mission.route.length - 1].lon
   );
+
+  // Update mission status
+  await supabase
+    .from("missions")
+    .update({
+      current_step: mission.current_step,
+      battery: mission.battery,
+      altitude: altitude,
+      phase: phase,
+      eta: 0,
+      status: "taking_off",
+      started_at: Date.now(),
+    })
+    .eq("id", missionId);
 
   // Update drone status at mission start
   if (mission.droneStatusUpdater) {
@@ -147,7 +163,7 @@ export async function simulateMission(missionId: string, io: Server) {
       return calculateTotalDistance();
     } else if (phase === "cruise") {
       let remaining = 0;
-      for (let i = mission.currentStep; i < mission.route.length - 1; i++) {
+      for (let i = mission.current_step; i < mission.route.length - 1; i++) {
         remaining += getDistanceMeters(
           mission.route[i].lat,
           mission.route[i].lon,
@@ -160,7 +176,7 @@ export async function simulateMission(missionId: string, io: Server) {
       return 0;
     } else if (phase === "returning") {
       let remaining = 0;
-      for (let i = mission.currentStep; i < mission.route.length - 1; i++) {
+      for (let i = mission.current_step; i < mission.route.length - 1; i++) {
         remaining += getDistanceMeters(
           mission.route[i].lat,
           mission.route[i].lon,
@@ -194,10 +210,10 @@ export async function simulateMission(missionId: string, io: Server) {
   };
 
   const simulateStep = async () => {
-    if (!missions[missionId]) return;
+    if (!mission) return;
 
-    const current = mission.route[mission.currentStep];
-    const nextStep = mission.route[mission.currentStep + 1];
+    const current = mission.route[mission.current_step];
+    const nextStep = mission.route[mission.current_step + 1];
 
     // Get current weather conditions
     const weather = await checkWeather(
@@ -232,7 +248,7 @@ export async function simulateMission(missionId: string, io: Server) {
       );
 
       travelTime = (distance / windEffects.speed) * 1000; // in ms
-      progress = Math.min(1, (Date.now() - mission.startedAt) / travelTime);
+      progress = Math.min(1, (Date.now() - mission.started_at) / travelTime);
 
       currentPosition = interpolatePosition(current, nextStep, progress, {
         driftX: windEffects.driftX,
@@ -245,6 +261,11 @@ export async function simulateMission(missionId: string, io: Server) {
           location: currentPosition,
         });
       }
+    }
+
+    if (mission.status === "cancelled" && phase !== "returning") {
+      phase = "returning";
+      mission.current_step = 0;
     }
 
     if (phase === "takeoff") {
@@ -266,8 +287,8 @@ export async function simulateMission(missionId: string, io: Server) {
       );
       altitude = terrain.elevation + minAltitude;
       if (progress >= 1) {
-        mission.currentStep++;
-        if (mission.currentStep === mission.route.length - 1) {
+        mission.current_step++;
+        if (mission.current_step === mission.route.length - 1) {
           phase = "delivery";
         }
       }
@@ -276,7 +297,7 @@ export async function simulateMission(missionId: string, io: Server) {
       if (altitude <= terrainAtLanding.elevation + 2) {
         altitude = terrainAtLanding.elevation + 2;
         phase = "returning";
-        mission.currentStep = 0;
+        mission.current_step = 0;
       }
     } else if (phase === "returning") {
       const terrain = await getTerrainData(
@@ -285,8 +306,8 @@ export async function simulateMission(missionId: string, io: Server) {
       );
       altitude = terrain.elevation + minAltitude;
       if (progress >= 1) {
-        mission.currentStep++;
-        if (mission.currentStep >= mission.route.length - 1) {
+        mission.current_step++;
+        if (mission.current_step >= mission.route.length - 1) {
           phase = "landing";
         }
       }
@@ -299,7 +320,7 @@ export async function simulateMission(missionId: string, io: Server) {
       if (altitude <= landingTerrain.elevation) {
         altitude = landingTerrain.elevation;
         mission.status = "completed";
-        mission.completedAt = Date.now();
+        mission.completed_at = Date.now();
 
         // Update drone status to idle after mission completion
         if (mission.droneStatusUpdater) {
@@ -336,6 +357,20 @@ export async function simulateMission(missionId: string, io: Server) {
     const remainingDistance = calculateRemainingDistance();
     const estimatedTimeSec = calculateETA();
 
+    // Update mission state in Supabase
+    await supabase
+      .from("missions")
+      .update({
+        current_step: mission.current_step,
+        battery: mission.battery,
+        altitude: altitude,
+        phase: phase,
+        eta: Math.round(estimatedTimeSec),
+        status: mission.status,
+        completed_at: mission.status === "completed" ? Date.now() : null,
+      })
+      .eq("id", missionId);
+
     console.log(
       `[TELEMETRY] Mission ${missionId} - Phase: ${phase}, Position: (${currentPosition.lat.toFixed(
         4
@@ -369,4 +404,267 @@ export async function simulateMission(missionId: string, io: Server) {
   };
 
   simulateStep();
+}
+
+interface RoutePoint {
+  lat: number;
+  lng: number;
+  altitude: number;
+}
+
+type MissionPhase = "takeoff" | "cruise" | "delivery" | "returning" | "landing";
+
+export class DroneSimulator {
+  private io: Server;
+  private missionId: string;
+  private route: RoutePoint[];
+  private currentStep: number = 0;
+  private phase: MissionPhase = "takeoff";
+  private batteryLevel: number = 100;
+  private currentPosition: RoutePoint;
+  private isPaused: boolean = false;
+  private isAborted: boolean = false;
+  private simulationInterval: NodeJS.Timeout | null = null;
+  private supabaseSubscription: any = null;
+
+  constructor(io: Server, missionId: string, route: RoutePoint[]) {
+    this.io = io;
+    this.missionId = missionId;
+    this.route = route;
+    this.currentPosition = route[0];
+    this.setupSupabaseSubscription();
+  }
+
+  private setupSupabaseSubscription() {
+    // Subscribe to mission changes
+    this.supabaseSubscription = supabase
+      .channel(`mission-${this.missionId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "missions",
+          filter: `id=eq.${this.missionId}`,
+        },
+        (payload: any) => {
+          console.log("Mission updated:", payload.new);
+          this.handleMissionUpdate(payload.new);
+        }
+      )
+      .subscribe();
+  }
+
+  private handleMissionUpdate(missionData: any) {
+    // Update simulation based on mission changes
+    if (missionData.status === "aborted") {
+      this.abort();
+    } else if (missionData.status === "paused") {
+      this.pause();
+    } else if (missionData.status === "in_progress" && this.isPaused) {
+      this.resume();
+    }
+
+    // Update route if it changed
+    if (
+      missionData.route &&
+      JSON.stringify(missionData.route) !== JSON.stringify(this.route)
+    ) {
+      this.route = missionData.route;
+      this.currentPosition = this.route[this.currentStep];
+    }
+  }
+
+  public start() {
+    if (this.simulationInterval) {
+      clearInterval(this.simulationInterval);
+    }
+
+    this.simulationInterval = setInterval(() => this.simulateStep(), 1000);
+  }
+
+  public stop() {
+    if (this.simulationInterval) {
+      clearInterval(this.simulationInterval);
+      this.simulationInterval = null;
+    }
+
+    if (this.supabaseSubscription) {
+      this.supabaseSubscription.unsubscribe();
+    }
+  }
+
+  public pause() {
+    this.isPaused = true;
+    if (this.simulationInterval) {
+      clearInterval(this.simulationInterval);
+      this.simulationInterval = null;
+    }
+
+    // Update mission status in database
+    supabase
+      .from("missions")
+      .update({
+        status: "paused",
+      })
+      .eq("id", this.missionId)
+      .then(({ error }) => {
+        if (error) {
+          console.error("Error updating mission status:", error);
+        }
+      });
+  }
+
+  public resume() {
+    this.isPaused = false;
+    this.start();
+
+    // Update mission status in database
+    supabase
+      .from("missions")
+      .update({
+        status: "in_progress",
+      })
+      .eq("id", this.missionId)
+      .then(({ error }) => {
+        if (error) {
+          console.error("Error updating mission status:", error);
+        }
+      });
+  }
+
+  public abort() {
+    this.isAborted = true;
+    this.stop();
+
+    // Update mission status in database
+    supabase
+      .from("missions")
+      .update({
+        status: "aborted",
+        completed_at: Date.now(),
+      })
+      .eq("id", this.missionId)
+      .then(({ error }) => {
+        if (error) {
+          console.error("Error updating mission status:", error);
+        }
+      });
+  }
+
+  private simulateStep() {
+    if (this.isPaused || this.isAborted) return;
+
+    // Update battery level
+    this.batteryLevel = Math.max(0, this.batteryLevel - 0.1);
+
+    // Update position based on current phase
+    switch (this.phase) {
+      case "takeoff":
+        this.handleTakeoff();
+        break;
+      case "cruise":
+        this.handleCruise();
+        break;
+      case "delivery":
+        this.handleDelivery();
+        break;
+      case "returning":
+        this.handleReturning();
+        break;
+      case "landing":
+        this.handleLanding();
+        break;
+    }
+
+    // Emit telemetry data
+    this.emitTelemetry();
+  }
+
+  private handleTakeoff() {
+    // Implementation for takeoff phase
+  }
+
+  private handleCruise() {
+    // Implementation for cruise phase
+  }
+
+  private handleDelivery() {
+    // Implementation for delivery phase
+  }
+
+  private handleReturning() {
+    // Implementation for returning phase
+  }
+
+  private handleLanding() {
+    // Implementation for landing phase
+    if (this.currentPosition.altitude <= 0) {
+      this.phase = "landing";
+      this.stop();
+
+      // Update mission status in database
+      supabase
+        .from("missions")
+        .update({
+          status: "completed",
+          phase: "landing",
+          completed_at: Date.now(),
+          battery: this.batteryLevel,
+          altitude: 0,
+          eta: 0,
+        })
+        .eq("id", this.missionId)
+        .then(({ error }) => {
+          if (error) {
+            console.error("Error updating mission status:", error);
+          } else {
+            console.log("Mission completed successfully");
+          }
+        });
+
+      // Emit final telemetry
+      this.emitTelemetry();
+    }
+  }
+
+  private emitTelemetry() {
+    const telemetryData = {
+      missionId: this.missionId,
+      phase: this.phase,
+      batteryLevel: this.batteryLevel,
+      position: this.currentPosition,
+      currentStep: this.currentStep,
+      isPaused: this.isPaused,
+      isAborted: this.isAborted,
+      status: this.isAborted
+        ? "aborted"
+        : this.isPaused
+        ? "paused"
+        : this.phase === "landing" && this.currentPosition.altitude <= 0
+        ? "completed"
+        : this.phase === "takeoff"
+        ? "taking_off"
+        : "in_progress",
+    };
+
+    this.io.to(this.missionId).emit("telemetry", telemetryData);
+
+    // Update mission in database
+    supabase
+      .from("missions")
+      .update({
+        status: telemetryData.status,
+        phase: this.phase,
+        battery: this.batteryLevel,
+        altitude: this.currentPosition.altitude,
+        current_step: this.currentStep,
+      })
+      .eq("id", this.missionId)
+      .then(({ error }) => {
+        if (error) {
+          console.error("Error updating mission telemetry:", error);
+        }
+      });
+  }
 }

@@ -11,7 +11,8 @@ export type MissionStatus =
   | "taking_off"
   | "in_progress"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export type MissionPhase =
   | "takeoff"

@@ -4,12 +4,11 @@ import { v4 as uuidv4 } from "uuid";
 import { simulateMission } from "../logic/simulator";
 import { missions } from "../data/store";
 import { Mission } from "../models/Mission";
-
+import { saveMission } from "../services/missionService";
 import { checkWeather } from "../services/weather";
+import { supabase } from "../lib/supabase";
 
 const router = Router();
-
-type RoutePoint = { lat: number; lon: number };
 
 const startMission: RequestHandler = async (req: Request, res: Response) => {
   console.log("Received request:", {
@@ -22,7 +21,7 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
   const { droneId, name, route } = req.body as {
     droneId: string;
     name: string;
-    route: RoutePoint[];
+    route: any[];
   };
 
   const weather = await checkWeather(route[0].lat, route[0].lon);
@@ -58,7 +57,7 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
     startedAt: Date.now(),
   };
 
-  missions[missionId] = newMission;
+  await saveMission(newMission);
 
   const io = req.app.get("io");
   io.to(missionId).emit("telemetryUpdate", {
@@ -77,21 +76,88 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
 
 router.post("/start", startMission);
 
-const getMission: RequestHandler = (req: Request, res: Response) => {
-  const mission = missions[req.params.id];
-  if (!mission) {
+const getMission: RequestHandler = async (req: Request, res: Response) => {
+  const missionId = req.params.id;
+
+  const { data, error } = await supabase
+    .from("missions")
+    .select("*")
+    .eq("id", missionId)
+    .single();
+
+  if (error) {
+    console.error("❌ Failed to fetch mission:", error.message);
+    res.status(500).json({ error: "Failed to retrieve mission" });
+    return;
+  }
+
+  if (!data) {
     res.status(404).json({ error: "Mission not found" });
     return;
   }
 
   res.json({
-    ...mission,
-    altitude: mission.altitude,
-    phase: mission.phase,
-    eta: mission.eta,
+    ...data,
+    altitude: data.altitude,
+    phase: data.phase,
+    eta: data.eta,
   });
 };
 
 router.get("/:id", getMission);
+
+const getAllMissions: RequestHandler = async (req: Request, res: Response) => {
+  const { data, error } = await supabase.from("missions").select("*");
+
+  if (error) {
+    console.error("❌ Failed to fetch missions:", error.message);
+    res.status(500).json({ error: "Failed to retrieve missions" });
+    return;
+  }
+
+  res.json(data);
+};
+
+router.get("/", getAllMissions);
+
+const cancelMission: RequestHandler = async (req: Request, res: Response) => {
+  const missionId = req.params.id;
+  const mission = missions[missionId];
+
+  if (!mission) {
+    res.status(404).json({ error: "Mission not found" });
+    return;
+  }
+
+  // Only allow cancellation if mission is still running
+  if (mission.status === "completed" || mission.status === "failed") {
+    res.status(400).json({ error: "Mission already ended" });
+    return;
+  }
+
+  mission.status = "in_progress"; // instruct the simulator to start return flow
+  mission.phase = "returning";
+
+  const io = req.app.get("io");
+  io.to(missionId).emit("telemetryUpdate", {
+    missionId,
+    status: "in_progress",
+    message: "Mission was cancelled, returning to base",
+    timestamp: Date.now(),
+  });
+
+  // Optionally mark it in Supabase too
+  await supabase
+    .from("missions")
+    .update({
+      status: "in_progress",
+      phase: "returning",
+    })
+    .eq("id", missionId);
+
+  res.json({ message: "Mission cancellation initiated" });
+};
+
+router.post("/:id/cancel", cancelMission);
 
 export default router;
