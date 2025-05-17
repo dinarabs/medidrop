@@ -19,6 +19,9 @@ const io = new Server(httpServer, {
   },
 });
 
+// Attach io to app so it can be accessed in routes
+app.set("io", io);
+
 // Initialize Supabase client
 export const supabase = createClient(
   config.supabase.url as string,
