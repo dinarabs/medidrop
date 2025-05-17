@@ -1,5 +1,21 @@
 **/node_modules/
 
+# Node modules
+**/node_modules/
+
+# Build outputs
 /backend/dist/
-/backend/.vscode/
-/backend/*.log
+.next/
+out/
+
+# VSCode settings
+.vscode/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Logs
+*.log
+
+# Environment files
+.env
