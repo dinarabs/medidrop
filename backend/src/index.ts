@@ -2,7 +2,7 @@ import express from "express";
 import missionRoutes from "./routes/missions";
 
 const app = express();
-const port = 3002;
+const port = 3001;
 
 // Add request logging
 app.use((req, res, next) => {

@@ -1,14 +1,19 @@
-interface Coordinates {
+export interface Coordinates {
   lat: number;
   lon: number;
+  alt?: number;
 }
 
-interface Mission {
+export type MissionStatus = "idle" | "in_progress" | "completed" | "failed";
+
+export interface Mission {
   id: string;
-  start: Coordinates;
-  destination: Coordinates;
-  startTime: number;
-  durationMs: number;
-  status: "in_progress" | "delivered" | "cancelled" | "failed";
-  battery: number; // percentage
+  droneId: string;
+  name: string;
+  route: Coordinates[];
+  currentStep: number;
+  status: MissionStatus;
+  battery: number;
+  startedAt: number;
+  completedAt?: number;
 }
