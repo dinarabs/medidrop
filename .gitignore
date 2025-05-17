@@ -35,3 +35,7 @@ pnpm-debug.log*
 
 # Optional: coverage reports
 coverage/
+
+# API Credential files
+data/API_key_openweather.py
+data/OAuth_sentinel.py
