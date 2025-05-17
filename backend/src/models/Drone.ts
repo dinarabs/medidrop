@@ -10,7 +10,7 @@ export interface Drone {
   max_payload?: number;
   max_range?: number;
   firmware_version?: string;
-  last_maintenance?: string; // or Date
+  last_maintenance?: string;
   is_active?: boolean;
   assigned_mission_id?: string;
   created_at?: string;
