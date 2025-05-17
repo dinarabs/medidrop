@@ -9,6 +9,8 @@ import { checkWeather } from "../services/weather";
 
 const router = Router();
 
+type RoutePoint = { lat: number; lon: number };
+
 const startMission: RequestHandler = async (req: Request, res: Response) => {
   console.log("Received request:", {
     method: req.method,
@@ -20,7 +22,7 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
   const { droneId, name, route } = req.body as {
     droneId: string;
     name: string;
-    route: any[];
+    route: RoutePoint[];
   };
 
   const weather = await checkWeather(route[0].lat, route[0].lon);
