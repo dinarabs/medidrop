@@ -1,0 +1,3 @@
+2025-05-18 11:32:04,122 INFO: Starting production server on port 5000 [in C:\Users\fabio\Documents\projetos\hackathons\medidrop\data\serve.py:18]
+2025-05-18 11:32:04,124 INFO: Serving on http://0.0.0.0:5000 [in C:\Users\fabio\AppData\Local\Programs\Python\Python313\Lib\site-packages\waitress\wasyncore.py:485]
+2025-05-18 11:32:25,477 INFO: Weather API response status: 200 [in C:\Users\fabio\Documents\projetos\hackathons\medidrop\data\app.py:100]
