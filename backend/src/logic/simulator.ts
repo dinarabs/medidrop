@@ -373,12 +373,70 @@ export async function simulateMission(missionId: string, io: Server) {
         heading: Math.round(currentHeading),
         windSpeed: weather.windSpeed,
         windDirection: weather.windDirection,
+        origin: mission.route[0],
+        destination: mission.route[mission.route.length - 1],
         timestamp: Date.now(),
       });
-
-      setTimeout(simulateStep, 1000);
     }
 
-    simulateStep();
+    mission.battery = Math.max(0, mission.battery - batteryConsumptionRate);
+
+    if (mission.droneStatusUpdater) {
+      mission.droneStatusUpdater({
+        battery: mission.battery,
+      });
+    }
+
+    const remainingDistance = calculateRemainingDistance();
+    const estimatedTimeSec = calculateETA();
+
+    await supabase
+      .from("missions")
+      .update({
+        current_step: mission.current_step,
+        battery: mission.battery,
+        altitude: altitude,
+        phase: phase,
+        eta: Math.round(estimatedTimeSec),
+        status: mission.status,
+        completed_at: mission.status === "completed" ? Date.now() : null,
+      })
+      .eq("id", missionId);
+
+    console.log(
+      `[TELEMETRY] Mission ${missionId} - Phase: ${phase}, Position: (${currentPosition.lat.toFixed(
+        4
+      )}, ${currentPosition.lon.toFixed(
+        4
+      )}), Altitude: ${altitude}m, Battery: ${mission.battery.toFixed(
+        1
+      )}%, Distance: ${Math.round(remainingDistance)}m, ETA: ${Math.round(
+        estimatedTimeSec
+      )}s, Heading: ${Math.round(currentHeading)}°, Wind: ${
+        weather.windSpeed
+      }m/s from ${weather.windDirection}°`
+    );
+
+    io.to(missionId).emit("telemetryUpdate", {
+      missionId,
+      position: currentPosition,
+      battery: mission.battery,
+      status: mission.status,
+      altitude,
+      phase,
+      eta: Math.round(estimatedTimeSec),
+      distance: Math.round(remainingDistance),
+      heading: Math.round(currentHeading),
+      windSpeed: weather.windSpeed,
+      windDirection: weather.windDirection,
+      origin: mission.route[0],
+      destination: mission.route[mission.route.length - 1],
+      timestamp: Date.now(),
+    });
+
+    setTimeout(simulateStep, 1000);
   };
+
+  // Start the simulation
+  simulateStep();
 }

@@ -15,7 +15,7 @@ export async function saveMission(mission: Mission) {
     eta: mission.eta ?? 0,
     started_at: mission.startedAt ?? Date.now(),
     completed_at: mission.completedAt ?? null,
-    assigned_drone_id: mission.assignedDroneId ?? null,
+    assigned_drone_id: mission.droneId,
   };
 
   console.log(

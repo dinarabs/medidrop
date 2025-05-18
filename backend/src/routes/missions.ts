@@ -54,6 +54,8 @@ const startMission: RequestHandler = async (req: Request, res: Response) => {
 
   const drone = availableDrones[0];
 
+  console.log("Drone:", drone);
+
   const missionId = uuidv4();
   const newMission: Mission = {
     id: missionId,
