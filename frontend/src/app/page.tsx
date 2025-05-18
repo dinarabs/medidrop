@@ -1,29 +1,41 @@
-"use client";
-import { useRouter } from "next/navigation";
+"use client"
+import { useRouter } from "next/navigation"
+import MissionHeader from "../components/MissionHeader"
 
 export default function Home() {
-  const router = useRouter();
+  const router = useRouter()
 
   return (
     <div
-      className="min-h-screen flex flex-col justify-between items-center p-8 pb-20 sm:p-20 font-[family-name:var(--font-geist-sans)]"
+      className="min-h-screen flex flex-col items-center p-8 pb-20 sm:p-20"
       style={{
         backgroundImage: "url('/bg.jpg')",
         backgroundSize: "cover",
         backgroundPosition: "center",
       }}
     >
-      <header className="w-full flex flex-col items-center mb-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4" style={{ fontSize: "2.75rem" }}>
-          MediDrop
-        </h1>
+      <div className="w-full max-w-6xl">
+        <MissionHeader />
+      </div>
+
+      <div className="flex-1 flex flex-col items-center justify-between max-w-3xl text-center w-full">
+        <h2
+          className="text-3xl md:text-4xl font-bold text-gray-900 mt-8"
+          style={{ fontFamily: "var(--font-geist-sans)" }}
+        >
+          Emergency Medical Supply Delivery
+        </h2>
+
+        {/* Description can go here if needed */}
+
         <button
-          className="mt-15 px-6 py-3 bg-blue-800 text-white rounded-lg shadow hover:bg-blue-900 transition"
+          className="px-8 py-4 bg-blue-800 text-white text-lg rounded-lg shadow-lg hover:bg-blue-900 transition mb-8"
           onClick={() => router.push("/form")}
         >
-          New Mission
+          Start New Mission
         </button>
-      </header>
+      </div>
+
       <p className="text-xs text-gray-500 text-center mt-8">
         Photo by{" "}
         <a
@@ -46,5 +58,5 @@ export default function Home() {
         . Free to use under the Unsplash License.
       </p>
     </div>
-  );
+  )
 }
