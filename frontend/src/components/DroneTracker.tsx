@@ -1,13 +1,26 @@
 import { useEffect, useState } from "react";
 import socket from "./socket";
 
+interface Telemetry {
+  missionId: string;
+  status: string;
+  battery: number;
+  altitude?: number;
+  phase?: string;
+  position?: {
+    lat: number;
+    lon: number;
+  };
+  eta?: number;
+}
+
 const DroneTracker = ({ missionId }: { missionId: string }) => {
-  const [telemetry, setTelemetry] = useState<any>(null);
+  const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
 
   useEffect(() => {
     socket.emit("join", missionId);
 
-    socket.on("telemetryUpdate", (data) => {
+    socket.on("telemetryUpdate", (data: Telemetry) => {
       setTelemetry(data);
     });
 

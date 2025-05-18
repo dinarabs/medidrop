@@ -83,7 +83,8 @@ export default function MissionForm({ onClose }: MissionFormProps) {
   const [route, setRoute] = useState<{ lat: string; long: string }[]>([])
   const [selectedKit, setSelectedKit] = useState("")
   const [missionName, setMissionName] = useState("New Mission")
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  // Remove isSubmitting state
+  // const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
 
   const addPointToRoute = () => {
@@ -187,9 +188,9 @@ export default function MissionForm({ onClose }: MissionFormProps) {
       <button
         type="submit"
         className="px-6 py-3 bg-blue-800 text-white rounded-md shadow hover:bg-blue-900 transition disabled:bg-blue-300"
-        disabled={route.length < 1 || !selectedKit || isSubmitting}
+        disabled={route.length < 1 || !selectedKit}
       >
-        {isSubmitting ? "Starting Mission..." : "Start Mission"}
+        Start Mission
       </button>
     </form>
   )
